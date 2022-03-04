@@ -1,0 +1,179 @@
+#задания тестировал тут https://extendsclass.com/postgresql-online.html#
+
+#Task 1
+#Напишите запрос SELECT, который вернет все простые числа меньше 100 в порядке возрастания. 
+#Ваш запрос должен вернуть один столбец с именем prime.
+
+DROP TABLE IF EXISTS Primes;
+DROP TABLE IF EXISTS Sequence;
+
+CREATE TABLE Primes
+(p INTEGER NOT NULL PRIMARY KEY
+  CHECK (p > 1)); 
+  
+CREATE TABLE Sequence 
+(seq INTEGER NOT NULL PRIMARY KEY
+CHECK (seq  > 0));
+
+#генерируем все возможные числа
+WITH Digits(i)
+AS (SELECT i
+   FROM (VALUES (1), (2), (3), (4), (5), (6), (7), (8), (9), (0)) AS X(i))
+   
+INSERT INTO Sequence(seq)
+SELECT (D2.i * 100 + D1.i * 10 + D0.i + 1) AS seq
+    FROM Digits AS D0, Digits AS D1, Digits AS D2;
+	
+# вставляем	числа кандидаты на простоту, сразу отбрасываем делящиеся на 2 и на 3
+INSERT INTO Primes (p) 
+(SELECT (6 * seq) + 1
+  FROM Sequence
+WHERE (6 * seq) + 1 <= 100
+UNION ALL 
+SELECT (6 * seq) - 1
+  FROM Sequence
+WHERE (6 * seq) + 1 <= 100);
+
+
+#удаляем оставшиеся составные числа
+DELETE FROM Primes
+WHERE EXISTS
+  (SELECT * 
+     FROM Primes AS P1
+    WHERE P1.p <= CEILING (SQRT (Primes.p))
+      AND (Primes.p % P1.p) = 0);
+	  
+	  
+Select p as prime from Primes order by prime;
+
+#Task 2
+#Ваша задача - работать с документами: создавать, изменять и удалять их. Это очень важная задача, поэтому вы также должны вести журнал изменений выполненных операций. Обновлять его вручную каждый раз очень утомительно, поэтому вы решили автоматизировать работу.
+
+#Вы должны что-то сделать, чтобы все изменения, сделанные в documents таблице, отражались в documents_changelog таблице:
+
+#При вставке скопируйте новые данные в new_data столбец
+#При обновлении скопируйте предыдущие данные в old_data и новые данные в new_data столбцы
+#При удалении скопируйте старые данные в old_data столбец
+#Если у операции нет новых / старых данных для работы, соответствующий столбец должен хранить NULL
+
+DROP TABLE IF EXISTS documents;
+DROP TABLE IF EXISTS documents_changelog;
+
+CREATE TABLE IF NOT EXISTS documents (
+    id           integer NOT NULL PRIMARY KEY,
+    data            text
+);
+
+CREATE TABLE IF NOT EXISTS documents_changelog(
+    id           integer NOT NULL PRIMARY KEY,
+    document_id             integer NOT NULL,
+    old_data            text,
+    new_data           text
+);
+
+CREATE SEQUENCE IF NOT EXISTS documents_changelog_sequence
+  start 1
+  increment 1;
+
+CREATE OR REPLACE FUNCTION process_documents_changelog() RETURNS TRIGGER AS $documents_changelog$
+    BEGIN
+        IF (TG_OP = 'DELETE') THEN
+            INSERT INTO documents_changelog SELECT nextval('documents_changelog_sequence'), OLD.id, OLD.data, NULL;
+            RETURN OLD;
+        ELSIF (TG_OP = 'UPDATE') THEN
+            INSERT INTO documents_changelog SELECT nextval('documents_changelog_sequence'),NEW.id, OLD.data, NEW.data;
+            RETURN NEW;
+        ELSIF (TG_OP = 'INSERT') THEN
+            INSERT INTO documents_changelog SELECT nextval('documents_changelog_sequence'),NEW.id, NULL, NEW.data;
+            RETURN NEW;
+        END IF;
+        RETURN NULL;
+    END;
+$documents_changelog$ LANGUAGE plpgsql;
+
+CREATE TRIGGER documents_changelog
+AFTER INSERT OR UPDATE OR DELETE ON documents
+    FOR EACH ROW EXECUTE PROCEDURE process_documents_changelog();
+	
+	
+	insert into documents values(1, 'test');
+	insert into documents values(2, 'test2');
+	update documents set data = 'new text' where id = 1;
+	update documents set data = 'new text' where id = 1;
+	delete from documents where id = 2;
+	select * from documents_changelog;
+	
+	
+#task 3
+#Учитывая информацию о продажах в магазине, рассчитайте общий доход для каждого дня, месяца, года и продукта.
+
+#Заметки
+#В sales таблице хранятся только даты, для которых были записаны какие-либо данные - sales_details вместо этого в таблице хранится информация об отдельных продажах (что и когда было продано).
+#В sales_details таблице хранятся итоговые данные по продукту на дату.
+#Заказать результат по product_name, year, month, day колонны
+#Нас интересуют только данные по конкретному продукту, поэтому вы не должны возвращать общий доход от всех продаж.
+
+DROP TABLE IF EXISTS products;
+DROP TABLE IF EXISTS sales;
+DROP TABLE IF EXISTS sales_details;
+
+create table products(
+  id integer primary key,
+  name text,
+  price numeric
+);
+
+create table sales(
+  id integer primary key,
+  date date
+);
+
+create table sales_details(
+  id serial primary key,
+  sale_id integer,
+  product_id integer,
+  count integer
+  
+);
+insert into sales values (1, '2021-12-05');
+insert into sales values (2, '2021-12-06');
+insert into sales values (3, '2021-12-07');
+insert into sales values (4, '2022-01-05');
+insert into sales values (5, '2022-01-06');
+insert into sales values (6, '2022-01-07');
+insert into sales values (7, '2022-02-05');
+insert into sales values (8, '2022-02-06');
+insert into sales values (9, '2022-02-07');
+
+insert into products values (1, 'milk', 10);
+insert into products values (2, 'butter', 100);
+insert into products values (3, 'bread', 1000);
+
+insert into sales_details(sale_id, product_id, "count") values (1, 1, 5);
+insert into sales_details(sale_id, product_id, "count") values (1, 2, 10);
+insert into sales_details(sale_id, product_id, "count") values (2, 1, 5);
+insert into sales_details(sale_id, product_id, "count") values (2, 3, 10);
+insert into sales_details(sale_id, product_id, "count") values (3, 2, 1);
+insert into sales_details(sale_id, product_id, "count") values (4, 2, 10);
+insert into sales_details(sale_id, product_id, "count") values (4, 3, 10);
+insert into sales_details(sale_id, product_id, "count") values (4, 1, 10);
+insert into sales_details(sale_id, product_id, "count") values (5, 1, 10);
+insert into sales_details(sale_id, product_id, "count") values (6, 1, 10);
+insert into sales_details(sale_id, product_id, "count") values (7, 1, 10);
+insert into sales_details(sale_id, product_id, "count") values (8, 3, 10);
+insert into sales_details(sale_id, product_id, "count") values (9, 3, 10);
+
+
+select 
+p.name as product_name, 
+date_part('year', s.date) as year,
+date_part('month', s.date) as month,
+date_part('day', s.date) as day,
+sum(p.price*sd.count)
+
+from sales_details sd join sales s 
+    on sd.sale_id = s.id join products p 
+    on sd.product_id = p.id
+    
+group by product_name, rollup(year, month, day)
+order by product_name, year, month, day
